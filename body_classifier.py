@@ -1,6 +1,3 @@
-# Import config first to suppress warnings
-import config
-
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -139,7 +136,7 @@ class BodyTypeClassifier:
         else:
             return "Apple (Round)"
     
-    def get_enhanced_recommendations(self, body_type: str) -e Dict:
+    def get_enhanced_recommendations(self, body_type: str) -> Dict:
         """Get enhanced clothing recommendations based on body type."""
         recommendations = {
             "Rectangle (I)": {
