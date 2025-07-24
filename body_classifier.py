@@ -1,24 +1,12 @@
 import cv2
-import mediapipe as mp
 import numpy as np
-from typing import Tuple, Dict, Optional
-import math
+import mediapipe as mp
 from PIL import Image
-
+import matplotlib.pyplot as plt
 
 class BodyTypeClassifier:
-    """
-    A class to classify body types from images using MediaPipe pose estimation.
-    
-    Body Types:
-    - Rectangle (I): Shoulders ≈ Waist ≈ Hips
-    - Inverted Triangle: Broad shoulders, narrow waist/hips
-    - Pear (Triangle): Hips wider than shoulders
-    - Hourglass: Bust ≈ Hips, narrow waist
-    - Apple (Round): Broad torso, undefined waist
-    """
-    
     def __init__(self):
+        # Initialize MediaPipe pose
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
             static_image_mode=True,
@@ -28,278 +16,357 @@ class BodyTypeClassifier:
         )
         self.mp_drawing = mp.solutions.drawing_utils
         
-    def extract_pose_landmarks(self, image_path: str) -> Optional[Dict]:
-        """Extract pose landmarks from an image."""
-        try:
-            image = cv2.imread(image_path)
-            if image is None:
-                raise ValueError(f"Could not load image from {image_path}")
-                
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = self.pose.process(image_rgb)
-            
-            if not results.pose_landmarks:
-                return None
-                
-            landmarks = {}
-            for idx, landmark in enumerate(results.pose_landmarks.landmark):
-                landmark_name = self.mp_pose.PoseLandmark(idx).name
-                landmarks[landmark_name] = {
-                    'x': landmark.x,
-                    'y': landmark.y,
-                    'z': landmark.z,
-                    'visibility': landmark.visibility
-                }
-            
-            return landmarks
-            
-        except Exception as e:
-            print(f"Error processing image: {e}")
-            return None
-    
-    def calculate_body_measurements(self, landmarks: Dict) -> Optional[Dict]:
-        """Calculate body measurements from pose landmarks."""
-        try:
-            # Key landmarks
-            left_shoulder = landmarks['LEFT_SHOULDER']
-            right_shoulder = landmarks['RIGHT_SHOULDER']
-            left_hip = landmarks['LEFT_HIP']
-            right_hip = landmarks['RIGHT_HIP']
-            
-            # Calculate widths
-            shoulder_width = abs(left_shoulder['x'] - right_shoulder['x'])
-            hip_width = abs(left_hip['x'] - right_hip['x'])
-            
-            # Estimate waist width (approximation between shoulders and hips)
-            waist_width = (shoulder_width + hip_width) / 2.2  # Empirical adjustment
-            
-            # Calculate torso length
-            shoulder_center_y = (left_shoulder['y'] + right_shoulder['y']) / 2
-            hip_center_y = (left_hip['y'] + right_hip['y']) / 2
-            torso_length = abs(hip_center_y - shoulder_center_y)
-            
-            # Calculate ratios
-            shoulder_to_hip_ratio = shoulder_width / hip_width if hip_width > 0 else 1
-            waist_to_shoulder_ratio = waist_width / shoulder_width if shoulder_width > 0 else 1
-            waist_to_hip_ratio = waist_width / hip_width if hip_width > 0 else 1
-            
-            measurements = {
-                'shoulder_width': shoulder_width,
-                'hip_width': hip_width,
-                'waist_width': waist_width,
-                'torso_length': torso_length,
-                'shoulder_to_hip_ratio': shoulder_to_hip_ratio,
-                'waist_to_shoulder_ratio': waist_to_shoulder_ratio,
-                'waist_to_hip_ratio': waist_to_hip_ratio
-            }
-            
-            return measurements
-            
-        except KeyError as e:
-            print(f"Missing landmark: {e}")
-            return None
-        except Exception as e:
-            print(f"Error calculating measurements: {e}")
-            return None
-    
-    def classify_body_type(self, measurements: Dict) -> str:
-        """Classify body type based on measurements."""
-        shoulder_to_hip = measurements['shoulder_to_hip_ratio']
-        waist_to_shoulder = measurements['waist_to_shoulder_ratio']
-        waist_to_hip = measurements['waist_to_hip_ratio']
-        
-        # Classification thresholds (can be fine-tuned)
-        similar_threshold = 0.95  # Within 5% considered similar
-        waist_threshold = 0.75    # Waist significantly smaller
-        
-        # Hourglass: Similar shoulders and hips, narrow waist
-        if (abs(shoulder_to_hip - 1.0) < (1 - similar_threshold) and 
-            waist_to_shoulder < waist_threshold and 
-            waist_to_hip < waist_threshold):
-            return "Hourglass"
-        
-        # Rectangle (I): Similar measurements across shoulders, waist, hips
-        elif (abs(shoulder_to_hip - 1.0) < (1 - similar_threshold) and
-              waist_to_shoulder > waist_threshold and
-              waist_to_hip > waist_threshold):
-            return "Rectangle (I)"
-        
-        # Inverted Triangle: Shoulders significantly wider than hips
-        elif shoulder_to_hip > 1.15:
-            return "Inverted Triangle"
-        
-        # Pear (Triangle): Hips significantly wider than shoulders
-        elif shoulder_to_hip < 0.85:
-            return "Pear (Triangle)"
-        
-        # Apple: Undefined waist, broader torso
-        else:
-            return "Apple (Round)"
-    
-    def get_enhanced_recommendations(self, body_type: str) -> Dict:
-        """Get enhanced clothing recommendations based on body type."""
-        recommendations = {
-            "Rectangle (I)": {
-                "tops": ["Peplum tops", "Ruffled blouses", "Wrap tops", "Belted jackets"],
-                "bottoms": ["A-line skirts", "Flared pants", "Layered skirts"],
-                "dresses": ["Fit-and-flare dresses", "Wrap dresses", "Empire waist dresses"],
-                "accessories": ["Wide belts", "Statement jewelry", "Scarves"],
-                "tips": ["Create curves with layers", "Define waist with belts", "Add volume to bust and hips"]
+        # Body type definitions and recommendations
+        self.body_types = {
+            'Rectangle': {
+                'description': 'Balanced proportions with similar shoulder, waist, and hip measurements',
+                'tops': ['Peplum tops', 'Wrap tops', 'Fitted blazers', 'Cropped jackets'],
+                'bottoms': ['High-waisted jeans', 'A-line skirts', 'Wide-leg pants', 'Bootcut jeans'],
+                'dresses': ['Wrap dresses', 'Fit-and-flare dresses', 'Belted dresses', 'Sheath dresses'],
+                'avoid': ['Straight-cut tops', 'Boxy clothing', 'Drop-waist dresses']
             },
-            "Hourglass": {
-                "tops": ["Fitted tops", "V-neck blouses", "Wrap tops", "Button-down shirts"],
-                "bottoms": ["High-waist trousers", "Pencil skirts", "Fitted jeans"],
-                "dresses": ["Bodycon dresses", "Wrap dresses", "Sheath dresses"],
-                "accessories": ["Thin belts", "Classic jewelry", "Structured bags"],
-                "tips": ["Emphasize your waist", "Choose fitted silhouettes", "Avoid oversized clothing"]
+            'Pear': {
+                'description': 'Hips wider than shoulders, well-defined waist',
+                'tops': ['Boat necks', 'Off-shoulder tops', 'Bright colored tops', 'Statement sleeves'],
+                'bottoms': ['Dark colored bottoms', 'Straight-leg jeans', 'Bootcut pants', 'A-line skirts'],
+                'dresses': ['A-line dresses', 'Fit-and-flare dresses', 'Empire waist dresses'],
+                'avoid': ['Skinny jeans', 'Tight bottoms', 'Hip details', 'Light colored bottoms']
             },
-            "Inverted Triangle": {
-                "tops": ["V-neck tops", "Scoop necks", "Soft fabrics", "Dark colors on top"],
-                "bottoms": ["Wide-leg pants", "A-line skirts", "Bright colored bottoms"],
-                "dresses": ["A-line dresses", "Empire waist dresses", "Maxi dresses"],
-                "accessories": ["Hip belts", "Statement necklaces", "Bright shoes"],
-                "tips": ["Balance broad shoulders", "Add volume to lower body", "Draw attention downward"]
+            'Apple': {
+                'description': 'Fuller midsection with less defined waist',
+                'tops': ['V-neck tops', 'Empire waist tops', 'Tunic tops', 'Wrap tops'],
+                'bottoms': ['Straight-leg pants', 'Bootcut jeans', 'A-line skirts', 'High-waisted bottoms'],
+                'dresses': ['Empire waist dresses', 'A-line dresses', 'Wrap dresses', 'V-neck dresses'],
+                'avoid': ['Tight tops', 'Belts at natural waist', 'Clingy fabrics', 'Crop tops']
             },
-            "Pear (Triangle)": {
-                "tops": ["Boat necks", "Off-shoulder tops", "Bright colored tops", "Structured blazers"],
-                "bottoms": ["Straight-leg pants", "Dark colored bottoms", "High-waist jeans"],
-                "dresses": ["A-line dresses", "Fit-and-flare dresses", "Empire waist"],
-                "accessories": ["Statement earrings", "Colorful scarves", "Structured shoulder bags"],
-                "tips": ["Emphasize shoulders and bust", "Choose dark bottoms", "Add structure to upper body"]
+            'Hourglass': {
+                'description': 'Balanced bust and hips with a well-defined waist',
+                'tops': ['Fitted tops', 'Wrap tops', 'V-neck tops', 'Scoop necks'],
+                'bottoms': ['High-waisted jeans', 'Pencil skirts', 'Fitted pants', 'Bootcut jeans'],
+                'dresses': ['Wrap dresses', 'Bodycon dresses', 'Fit-and-flare dresses', 'Belted dresses'],
+                'avoid': ['Oversized clothing', 'Loose fits', 'Low-rise pants', 'Boxy tops']
             },
-            "Apple (Round)": {
-                "tops": ["Empire waist tops", "V-neck blouses", "Flowy tunics", "Open cardigans"],
-                "bottoms": ["Straight-leg pants", "Bootcut jeans", "A-line skirts"],
-                "dresses": ["Empire waist dresses", "A-line dresses", "Wrap dresses"],
-                "accessories": ["Long necklaces", "Vertical patterns", "Structured bags"],
-                "tips": ["Create vertical lines", "Emphasize legs", "Choose flowy fabrics around torso"]
+            'Inverted Triangle': {
+                'description': 'Broader shoulders than hips',
+                'tops': ['V-neck tops', 'Scoop necks', 'Soft fabrics', 'Darker colored tops'],
+                'bottoms': ['Wide-leg pants', 'Flared jeans', 'Bright colored bottoms', 'Detailed bottoms'],
+                'dresses': ['A-line dresses', 'Fit-and-flare dresses', 'Peplum dresses'],
+                'avoid': ['Shoulder pads', 'Boat necks', 'Horizontal stripes on top', 'Strapless tops']
             }
         }
-        
-        return recommendations.get(body_type, {})
     
-    def analyze_image(self, image_path: str) -> Dict:
-        """Complete analysis pipeline for a single image."""
-        # Extract landmarks
-        landmarks = self.extract_pose_landmarks(image_path)
-        if not landmarks:
-            return {"error": "Could not detect pose landmarks in the image"}
+    def extract_landmarks(self, image_path):
+        """Extract pose landmarks from image using MediaPipe"""
+        # Read image
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"Could not read image from {image_path}")
+        
+        # Convert BGR to RGB
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Process image
+        results = self.pose.process(image_rgb)
+        
+        if not results.pose_landmarks:
+            return None, image_rgb
+        
+        return results.pose_landmarks, image_rgb
+    
+    def calculate_body_measurements(self, landmarks):
+        """Calculate body measurements from pose landmarks"""
+        # Get landmark coordinates
+        lm = landmarks.landmark
+        
+        # Key landmarks
+        left_shoulder = lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+        right_shoulder = lm[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        left_hip = lm[self.mp_pose.PoseLandmark.LEFT_HIP]
+        right_hip = lm[self.mp_pose.PoseLandmark.RIGHT_HIP]
         
         # Calculate measurements
-        measurements = self.calculate_body_measurements(landmarks)
-        if not measurements:
-            return {"error": "Could not calculate body measurements"}
+        shoulder_width = abs(left_shoulder.x - right_shoulder.x)
+        hip_width = abs(left_hip.x - right_hip.x)
         
-        # Classify body type
-        body_type = self.classify_body_type(measurements)
+        # Estimate waist (midpoint between shoulder and hip)
+        waist_y = (left_shoulder.y + right_shoulder.y + left_hip.y + right_hip.y) / 4
+        waist_width = shoulder_width * 0.75  # Estimate waist as 75% of shoulder width
         
-        # Get recommendations
-        recommendations = self.get_enhanced_recommendations(body_type)
+        # Calculate torso length
+        torso_length = abs((left_shoulder.y + right_shoulder.y) / 2 - (left_hip.y + right_hip.y) / 2)
         
         return {
-            "body_type": body_type,
-            "measurements": measurements,
-            "recommendations": recommendations,
-            "confidence": self._calculate_confidence(measurements)
+            'shoulder_width': shoulder_width,
+            'waist_width': waist_width,
+            'hip_width': hip_width,
+            'torso_length': torso_length
         }
     
-    def analyze_body_type(self, image_path: str) -> Dict:
-        """Analyze body type with enhanced return format for the new UI."""
+    def classify_body_type(self, measurements):
+        """Classify body type based on measurements"""
+        shoulder = measurements['shoulder_width']
+        waist = measurements['waist_width']
+        hip = measurements['hip_width']
+        
+        # Calculate ratios
+        shoulder_hip_ratio = shoulder / hip if hip > 0 else 1
+        waist_hip_ratio = waist / hip if hip > 0 else 1
+        shoulder_waist_ratio = shoulder / waist if waist > 0 else 1
+        
+        # Classification logic with confidence scores
+        confidence_scores = {}
+        
+        # Rectangle: Similar measurements all around
+        if 0.85 <= shoulder_hip_ratio <= 1.15 and waist_hip_ratio > 0.75:
+            confidence_scores['Rectangle'] = min(1.0, 1.0 - abs(shoulder_hip_ratio - 1.0) * 2)
+        
+        # Pear: Hips wider than shoulders
+        if shoulder_hip_ratio < 0.85:
+            confidence_scores['Pear'] = min(1.0, (0.85 - shoulder_hip_ratio) * 2)
+        
+        # Inverted Triangle: Shoulders wider than hips
+        if shoulder_hip_ratio > 1.15:
+            confidence_scores['Inverted Triangle'] = min(1.0, (shoulder_hip_ratio - 1.15) * 2)
+        
+        # Apple: Larger waist compared to hips and shoulders
+        if waist_hip_ratio > 0.85 and shoulder_hip_ratio > 0.9:
+            confidence_scores['Apple'] = min(1.0, waist_hip_ratio)
+        
+        # Hourglass: Balanced shoulders and hips with smaller waist
+        if 0.9 <= shoulder_hip_ratio <= 1.1 and waist_hip_ratio < 0.75:
+            confidence_scores['Hourglass'] = min(1.0, 1.0 - waist_hip_ratio)
+        
+        # If no clear classification, default to Rectangle
+        if not confidence_scores:
+            confidence_scores['Rectangle'] = 0.5
+        
+        # Get the body type with highest confidence
+        body_type = max(confidence_scores, key=confidence_scores.get)
+        confidence = confidence_scores[body_type]
+        
+        return body_type, confidence, confidence_scores
+    
+    def analyze_image(self, image_path):
+        """Main function to analyze image and return body type classification"""
         try:
             # Extract landmarks
-            landmarks = self.extract_pose_landmarks(image_path)
-            if not landmarks:
+            landmarks, image = self.extract_landmarks(image_path)
+            
+            if landmarks is None:
                 return {
-                    "success": False,
-                    "error": "Could not detect pose landmarks in the image. Please ensure your full body is visible and you're standing straight."
+                    'success': False,
+                    'error': 'No pose detected in image. Please use a clear full-body image.',
+                    'image': image
                 }
             
             # Calculate measurements
             measurements = self.calculate_body_measurements(landmarks)
-            if not measurements:
-                return {
-                    "success": False,
-                    "error": "Could not calculate body measurements from the detected pose."
-                }
             
             # Classify body type
-            body_type = self.classify_body_type(measurements)
+            body_type, confidence, all_scores = self.classify_body_type(measurements)
             
-            # Get enhanced recommendations
-            recommendations = self.get_enhanced_recommendations(body_type)
-            
-            # Convert measurements to expected format
-            enhanced_measurements = {
-                'shoulder_hip_ratio': measurements['shoulder_to_hip_ratio'],
-                'waist_hip_ratio': measurements['waist_to_hip_ratio'],
-                'waist_definition': measurements['waist_to_shoulder_ratio'],
-                'torso_length': measurements['torso_length']
-            }
+            # Get recommendations
+            recommendations = self.body_types[body_type]
             
             return {
-                "success": True,
-                "body_type": body_type,
-                "measurements": enhanced_measurements,
-                "recommendations": recommendations,
-                "confidence": self._calculate_confidence(measurements)
+                'success': True,
+                'body_type': body_type,
+                'confidence': confidence,
+                'all_scores': all_scores,
+                'measurements': measurements,
+                'recommendations': recommendations,
+                'landmarks': landmarks,
+                'image': image
             }
             
         except Exception as e:
             return {
-                "success": False,
-                "error": f"An error occurred during analysis: {str(e)}"
+                'success': False,
+                'error': str(e),
+                'image': None
             }
     
-    def visualize_pose(self, image_path: str):
-        """Create a visualization of the detected pose landmarks."""
+    def visualize_results(self, result, save_path=None):
+        """Visualize the analysis results"""
+        if not result['success']:
+            print(f"Analysis failed: {result['error']}")
+            return
+        
+        # Create figure with subplots
+        fig, axes = plt.subplots(1, 2, figsize=(15, 8))
+        
+        # Plot 1: Original image with pose landmarks
+        axes[0].imshow(result['image'])
+        axes[0].set_title('Pose Detection')
+        axes[0].axis('off')
+        
+        # Draw pose landmarks if available
+        if result['landmarks']:
+            # Convert landmarks to pixel coordinates
+            h, w = result['image'].shape[:2]
+            landmarks = result['landmarks']
+            
+            # Draw key points
+            key_points = [
+                self.mp_pose.PoseLandmark.LEFT_SHOULDER,
+                self.mp_pose.PoseLandmark.RIGHT_SHOULDER,
+                self.mp_pose.PoseLandmark.LEFT_HIP,
+                self.mp_pose.PoseLandmark.RIGHT_HIP
+            ]
+            
+            for point in key_points:
+                landmark = landmarks.landmark[point]
+                x, y = int(landmark.x * w), int(landmark.y * h)
+                axes[0].plot(x, y, 'ro', markersize=8)
+        
+        # Plot 2: Body type classification results
+        body_types = list(result['all_scores'].keys())
+        scores = list(result['all_scores'].values())
+        colors = ['#FF6B6B' if bt == result['body_type'] else '#4ECDC4' for bt in body_types]
+        
+        bars = axes[1].bar(body_types, scores, color=colors)
+        axes[1].set_title(f'Body Type Classification\nPredicted: {result["body_type"]} (Confidence: {result["confidence"]:.2f})')
+        axes[1].set_ylabel('Confidence Score')
+        axes[1].set_ylim(0, 1)
+        
+        # Rotate x-axis labels for better readability
+        plt.setp(axes[1].get_xticklabels(), rotation=45, ha='right')
+        
+        # Add value labels on bars
+        for bar, score in zip(bars, scores):
+            height = bar.get_height()
+            axes[1].text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                        f'{score:.2f}', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        plt.show()
+    
+    def print_recommendations(self, result):
+        """Print styling recommendations"""
+        if not result['success']:
+            print(f"Cannot provide recommendations: {result['error']}")
+            return
+        
+        body_type = result['body_type']
+        recommendations = result['recommendations']
+        confidence = result['confidence']
+        
+        print(f"\n{'='*60}")
+        print(f"BODY TYPE ANALYSIS RESULTS")
+        print(f"{'='*60}")
+        print(f"Predicted Body Type: {body_type}")
+        print(f"Confidence Score: {confidence:.2%}")
+        print(f"Description: {recommendations['description']}")
+        
+        print(f"\n{'='*60}")
+        print(f"STYLING RECOMMENDATIONS")
+        print(f"{'='*60}")
+        
+        print(f"\n👔 TOPS:")
+        for item in recommendations['tops']:
+            print(f"  ✓ {item}")
+        
+        print(f"\n👖 BOTTOMS:")
+        for item in recommendations['bottoms']:
+            print(f"  ✓ {item}")
+        
+        print(f"\n👗 DRESSES:")
+        for item in recommendations['dresses']:
+            print(f"  ✓ {item}")
+        
+        print(f"\n❌ AVOID:")
+        for item in recommendations['avoid']:
+            print(f"  ✗ {item}")
+        
+        print(f"\n{'='*60}")
+        
+        # Print all confidence scores
+        print(f"All Body Type Scores:")
+        for bt, score in result['all_scores'].items():
+            print(f"  {bt}: {score:.2%}")
+        
+        print(f"{'='*60}\n")
+
+    # Compatibility methods for Streamlit app
+    def analyze_body_type(self, image_path):
+        """Streamlit-compatible analysis method"""
+        result = self.analyze_image(image_path)
+        
+        if not result['success']:
+            return {
+                'success': False,
+                'error': result['error']
+            }
+        
+        # Convert to Streamlit-expected format
+        measurements = {
+            'shoulder_hip_ratio': result['measurements']['shoulder_width'] / result['measurements']['hip_width'],
+            'waist_hip_ratio': result['measurements']['waist_width'] / result['measurements']['hip_width'], 
+            'waist_definition': 1.0 - result['measurements']['waist_width'] / result['measurements']['shoulder_width'],
+            'torso_length': result['measurements']['torso_length']
+        }
+        
+        return {
+            'success': True,
+            'body_type': result['body_type'],
+            'confidence': result['confidence'],
+            'measurements': measurements,
+            'recommendations': result['recommendations']
+        }
+    
+    def visualize_pose(self, image_path):
+        """Create pose visualization for Streamlit"""
         try:
-            image = cv2.imread(image_path)
-            if image is None:
-                return None
-                
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = self.pose.process(image_rgb)
-            
-            if not results.pose_landmarks:
+            landmarks, image = self.extract_landmarks(image_path)
+            if landmarks is None:
                 return None
             
-            # Draw the pose landmarks on the image
-            annotated_image = image_rgb.copy()
-            self.mp_drawing.draw_landmarks(
-                annotated_image,
-                results.pose_landmarks,
-                self.mp_pose.POSE_CONNECTIONS,
-                self.mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
-                self.mp_drawing.DrawingSpec(color=(245, 66, 230), thickness=2, circle_radius=2)
-            )
+            # Draw pose landmarks on image
+            annotated_image = image.copy()
+            
+            # Convert landmarks to pixel coordinates
+            h, w = image.shape[:2]
+            
+            # Draw key points
+            key_points = [
+                self.mp_pose.PoseLandmark.LEFT_SHOULDER,
+                self.mp_pose.PoseLandmark.RIGHT_SHOULDER,
+                self.mp_pose.PoseLandmark.LEFT_HIP,
+                self.mp_pose.PoseLandmark.RIGHT_HIP
+            ]
+            
+            # Draw circles on key landmarks
+            for point in key_points:
+                landmark = landmarks.landmark[point]
+                x, y = int(landmark.x * w), int(landmark.y * h)
+                # Draw circle on the image
+                import cv2
+                cv2.circle(annotated_image, (x, y), 8, (255, 0, 0), -1)
             
             return annotated_image
             
         except Exception as e:
             print(f"Error creating pose visualization: {e}")
             return None
-    
-    def _calculate_confidence(self, measurements: Dict) -> float:
-        """Calculate confidence score based on measurement quality."""
-        # Simple confidence calculation based on measurement ratios
-        # Higher confidence for more distinct body types
-        shoulder_to_hip = measurements['shoulder_to_hip_ratio']
-        
-        if abs(shoulder_to_hip - 1.0) > 0.15:  # Very distinct ratios
-            return 0.9
-        elif abs(shoulder_to_hip - 1.0) > 0.10:  # Moderately distinct
-            return 0.75
-        else:  # Less distinct
-            return 0.6
 
 
+# Example usage
 if __name__ == "__main__":
-    # Example usage
+    # Initialize classifier
     classifier = BodyTypeClassifier()
     
-    # Test with an image (you'll need to provide a valid image path)
-    # result = classifier.analyze_image("path_to_your_image.jpg")
-    # print(result)
+    # Example analysis
+    image_path = "path_to_your_image.jpg"  # Replace with actual image path
     
-    print("Body Type Classifier initialized successfully!")
-    print("Use classifier.analyze_image('path_to_image.jpg') to analyze an image.")
+    # Analyze image
+    result = classifier.analyze_image(image_path)
+    
+    # Print recommendations
+    classifier.print_recommendations(result)
+    
+    # Visualize results
+    classifier.visualize_results(result)
