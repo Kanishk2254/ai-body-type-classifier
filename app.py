@@ -1,6 +1,3 @@
-# Import config first to suppress warnings
-import config
-
 import streamlit as st
 import cv2
 import numpy as np
@@ -8,252 +5,372 @@ from PIL import Image
 import tempfile
 import os
 from body_classifier import BodyTypeClassifier
-from image_utils import process_uploaded_image, ImageProcessor
 import matplotlib.pyplot as plt
+import io
+import base64
+import warnings
+warnings.filterwarnings('ignore')
 
+# Page configuration
+st.set_page_config(
+    page_title="AI Body Type Analyzer",
+    page_icon="👗",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-def main():
-    st.set_page_config(
-        page_title="Body Type Classifier",
-        page_icon="👗",
-        layout="wide"
-    )
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 2rem;
+    }
     
-    st.title("🎯 AI Body Type Classifier & Style Advisor")
-    st.markdown("---")
+    .sub-header {
+        font-size: 1.2rem;
+        text-align: center;
+        color: #666;
+        margin-bottom: 2rem;
+    }
     
-    # Sidebar with information
-    with st.sidebar:
-        st.header("📋 About")
-        st.markdown("""
-        This AI-powered app analyzes your body type from a full-body image and provides personalized clothing recommendations.
-        
-        **Supported Body Types:**
-        - 🍎 Apple (Round)
-        - 🍐 Pear (Triangle) 
-        - ⏳ Hourglass
-        - 📏 Rectangle (I)
-        - 🔺 Inverted Triangle
-        """)
-        
-        st.header("📸 Image Guidelines")
-        st.markdown("""
-        For best results:
-        - Use a full-body image
-        - Stand straight with arms at sides
-        - Wear fitted clothing
-        - Good lighting and clear background
-        - Face the camera directly
-        """)
+    .body-type-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        color: white;
+        text-align: center;
+        margin: 1rem 0;
+    }
     
-    # Main content
-    col1, col2 = st.columns([1, 1])
+    .confidence-bar {
+        background: #e0e0e0;
+        border-radius: 10px;
+        height: 20px;
+        margin: 10px 0;
+    }
+    
+    .recommendation-card {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border-left: 5px solid #667eea;
+        margin: 1rem 0;
+    }
+    
+    .measurement-item {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .success-message {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 5px;
+        padding: 1rem;
+        color: #155724;
+    }
+    
+    .error-message {
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 5px;
+        padding: 1rem;
+        color: #721c24;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+@st.cache_resource
+def load_classifier():
+    """Load and cache the body type classifier"""
+    return BodyTypeClassifier()
+
+def display_body_type_info():
+    """Display information about body types"""
+    st.sidebar.markdown("## 📖 Body Types Guide")
+    
+    body_types = {
+        "Rectangle": "Straight up and down, shoulders ≈ waist ≈ hips",
+        "Inverted Triangle": "Broad shoulders, narrow hips",
+        "Pear": "Hips wider than shoulders",
+        "Hourglass": "Balanced bust and hips, narrow waist",
+        "Apple": "Fuller midsection, less defined waist"
+    }
+    
+    for body_type, description in body_types.items():
+        st.sidebar.markdown(f"**{body_type}**: {description}")
+
+def create_confidence_bar(confidence):
+    """Create a visual confidence bar"""
+    confidence_percent = int(confidence * 100)
+    color = "#4CAF50" if confidence >= 0.8 else "#FF9800" if confidence >= 0.6 else "#f44336"
+    
+    return f"""<div style="background: #e0e0e0; border-radius: 10px; height: 25px; margin: 10px 0;">
+        <div style="background: {color}; width: {confidence_percent}%; height: 100%; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+            {confidence_percent}%
+        </div>
+    </div>"""
+
+def display_measurements(measurements):
+    """Display body measurements in a nice format"""
+    st.markdown("### 📏 Body Measurements")
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.header("Upload Your Image")
-        uploaded_file = st.file_uploader(
-            "Choose an image...", 
-            type=['jpg', 'jpeg', 'png'],
-            help="Upload a full-body image for analysis"
-        )
+        st.markdown(f"""
+        <div class="measurement-item">
+            <strong>Shoulder-Hip Ratio</strong><br>
+            <span style="font-size: 1.5em; color: #667eea;">{measurements['shoulder_hip_ratio']:.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
         
-        if uploaded_file is not None:
-            # Display the uploaded image
+        st.markdown(f"""
+        <div class="measurement-item">
+            <strong>Waist-Hip Ratio</strong><br>
+            <span style="font-size: 1.5em; color: #667eea;">{measurements['waist_hip_ratio']:.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="measurement-item">
+            <strong>Waist Definition</strong><br>
+            <span style="font-size: 1.5em; color: #667eea;">{measurements['waist_definition']:.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="measurement-item">
+            <strong>Torso Length</strong><br>
+            <span style="font-size: 1.5em; color: #667eea;">{measurements['torso_length']:.2f}</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+def display_recommendations(recommendations):
+    """Display clothing recommendations in an organized way"""
+    st.markdown("### 👗 Personalized Style Recommendations")
+    
+    # Description
+    if 'description' in recommendations:
+        st.markdown(f"""
+        <div class="recommendation-card">
+            <h4>Body Type Description</h4>
+            <p>{recommendations['description']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Create tabs for different recommendation categories
+    tab1, tab2, tab3, tab4 = st.tabs(["👕 Tops", "👖 Bottoms", "👗 Dresses", "❌ Avoid"])
+    
+    with tab1:
+        if 'tops' in recommendations:
+            for item in recommendations['tops']:
+                st.markdown(f"✅ {item}")
+    
+    with tab2:
+        if 'bottoms' in recommendations:
+            for item in recommendations['bottoms']:
+                st.markdown(f"✅ {item}")
+    
+    with tab3:
+        if 'dresses' in recommendations:
+            for item in recommendations['dresses']:
+                st.markdown(f"✅ {item}")
+    
+    with tab4:
+        if 'avoid' in recommendations:
+            for item in recommendations['avoid']:
+                st.markdown(f"❌ {item}")
+    
+    # Styling tips
+    if 'styling_tips' in recommendations:
+        st.markdown(f"""
+        <div class="recommendation-card">
+            <h4>💡 Pro Styling Tip</h4>
+            <p><em>{recommendations['styling_tips']}</em></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+def save_uploaded_file(uploaded_file):
+    """Save uploaded file to temporary location"""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            return tmp_file.name
+    except Exception as e:
+        st.error(f"Error saving file: {e}")
+        return None
+
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">AI Body Type Analyzer</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Upload your photo and get personalized fashion recommendations powered by AI</p>', unsafe_allow_html=True)
+    
+    # Load classifier
+    try:
+        classifier = load_classifier()
+    except Exception as e:
+        st.error(f"Error loading classifier: {e}")
+        return
+    
+    # Sidebar info
+    display_body_type_info()
+    
+    st.sidebar.markdown("## 📋 Instructions")
+    st.sidebar.markdown("""
+    1. Upload a full-body photo
+    2. Ensure you're standing straight
+    3. Make sure your entire body is visible
+    4. Good lighting helps accuracy
+    5. Click 'Analyze Body Type'
+    """)
+    
+    # File upload
+    st.markdown("## 📸 Upload Your Photo")
+    uploaded_file = st.file_uploader(
+        "Choose a full-body image",
+        type=['png', 'jpg', 'jpeg'],
+        help="Upload a clear, full-body photo where you're standing straight"
+    )
+    
+    if uploaded_file is not None:
+        # Display uploaded image
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.markdown("### Your Photo")
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_container_width=True)
             
-            # Process image using utility function
-            temp_path = process_uploaded_image(uploaded_file)
-    
-    with col2:
-        if uploaded_file is not None:
-            st.header("Analysis Results")
-            
-            # Check if image processing was successful
-            if temp_path is None:
-                st.error("❌ Failed to process the uploaded image")
-                st.info("💡 Please try uploading a different image format (JPG, PNG)")
-                return
-            
-            # Initialize classifier and analyze
-            with st.spinner("🔍 Analyzing your body type..."):
-                try:
-                    classifier = BodyTypeClassifier()
-                    result = classifier.analyze_image(temp_path)
-                    
-                    # Clean up temporary file
-                    if os.path.exists(temp_path):
-                        os.unlink(temp_path)
-                    
-                    if "error" in result:
-                        st.error(f"❌ {result['error']}")
-                        st.info("💡 Try uploading a clearer full-body image with better pose visibility.")
-                    else:
-                        # Display results
-                        display_results(result)
-                        
-                except Exception as e:
-                    st.error(f"❌ An error occurred: {str(e)}")
-                    if temp_path and os.path.exists(temp_path):
-                        try:
-                            os.unlink(temp_path)
-                        except:
-                            pass
-
-
-def display_results(result):
-    """Display the analysis results in an organized manner."""
-    body_type = result['body_type']
-    confidence = result['confidence']
-    measurements = result['measurements']
-    recommendations = result['recommendations']
-    
-    # Body type and confidence
-    st.success(f"🎯 **Detected Body Type:** {body_type}")
-    
-    confidence_color = "green" if confidence > 0.8 else "orange" if confidence > 0.6 else "red"
-    st.markdown(f"**Confidence:** <span style='color:{confidence_color}'>{confidence:.1%}</span>", 
-                unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Measurements visualization
-    with st.expander("📏 Body Measurements Details"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Shoulder to Hip Ratio", f"{measurements['shoulder_to_hip_ratio']:.2f}")
-            st.metric("Waist to Shoulder Ratio", f"{measurements['waist_to_shoulder_ratio']:.2f}")
+            # Image info
+            st.markdown(f"**Size:** {image.size[0]} x {image.size[1]} pixels")
+            st.markdown(f"**Format:** {image.format}")
         
         with col2:
-            st.metric("Waist to Hip Ratio", f"{measurements['waist_to_hip_ratio']:.2f}")
-            st.metric("Torso Length", f"{measurements['torso_length']:.3f}")
+            st.markdown("### Analysis Results")
+            
+            if st.button("🔍 Analyze Body Type", type="primary", use_container_width=True):
+                # Save uploaded file
+                temp_path = save_uploaded_file(uploaded_file)
+                
+                if temp_path:
+                    try:
+                        # Show progress
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        status_text.text("🔄 Processing image...")
+                        progress_bar.progress(25)
+                        
+                        # Analyze body type
+                        result = classifier.analyze_body_type(temp_path)
+                        progress_bar.progress(75)
+                        
+                        status_text.text("✅ Analysis complete!")
+                        progress_bar.progress(100)
+                        
+                        # Clean up
+                        os.unlink(temp_path)
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        # Display results
+                        if result['success']:
+                            # Body type result card
+                            st.markdown(f"""
+                            <div class="body-type-card">
+                                <h2>Your Body Type: {result['body_type']}</h2>
+                                <p>Confidence Level</p>
+                                {create_confidence_bar(result['confidence'])}
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Measurements
+                            if result['measurements']:
+                                display_measurements(result['measurements'])
+                            
+                            # Recommendations
+                            if result['recommendations']:
+                                display_recommendations(result['recommendations'])
+                            
+                            # Offer pose visualization
+                            if st.button("🎨 Show Pose Detection", use_container_width=True):
+                                temp_path = save_uploaded_file(uploaded_file)
+                                try:
+                                    pose_image = classifier.visualize_pose(temp_path)
+                                    if pose_image is not None:
+                                        st.image(pose_image, caption="Pose Detection Visualization", use_container_width=True)
+                                    os.unlink(temp_path)
+                                except Exception as e:
+                                    st.error(f"Error creating pose visualization: {e}")
+                        
+                        else:
+                            st.markdown(f"""
+                            <div class="error-message">
+                                <strong>Analysis Failed</strong><br>
+                                {result['error']}
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            st.markdown("### 💡 Tips for Better Results:")
+                            st.markdown("""
+                            - Ensure your full body is visible in the image
+                            - Stand straight facing the camera
+                            - Use good lighting
+                            - Avoid baggy clothing that hides your body shape
+                            - Make sure the background is not cluttered
+                            """)
+                    
+                    except Exception as e:
+                        st.error(f"Error during analysis: {e}")
+                        if temp_path and os.path.exists(temp_path):
+                            os.unlink(temp_path)
     
-    # Clothing recommendations
-    if recommendations:
-        st.header("👗 Personalized Style Recommendations")
+    else:
+        # Sample images section
+        st.markdown("## 🖼️ Sample Images")
+        st.markdown("Don't have a photo ready? Here are some tips for taking the perfect body type analysis photo:")
         
-        # Create tabs for different categories
-        tabs = st.tabs(["👚 Tops", "👖 Bottoms", "👗 Dresses", "✨ Accessories", "💡 Style Tips"])
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("### ✅ Good Photo")
+            st.markdown("- Full body visible")
+            st.markdown("- Standing straight")
+            st.markdown("- Good lighting")
+            st.markdown("- Minimal background")
         
-        with tabs[0]:  # Tops
-            st.subheader("Recommended Tops")
-            for item in recommendations.get('tops', []):
-                st.write(f"• {item}")
+        with col2:
+            st.markdown("### ❌ Avoid")
+            st.markdown("- Partial body shots")
+            st.markdown("- Sitting or lying down")
+            st.markdown("- Dark or blurry images")
+            st.markdown("- Baggy clothing")
         
-        with tabs[1]:  # Bottoms
-            st.subheader("Recommended Bottoms")
-            for item in recommendations.get('bottoms', []):
-                st.write(f"• {item}")
-        
-        with tabs[2]:  # Dresses
-            st.subheader("Recommended Dresses")
-            for item in recommendations.get('dresses', []):
-                st.write(f"• {item}")
-        
-        with tabs[3]:  # Accessories
-            st.subheader("Recommended Accessories")
-            for item in recommendations.get('accessories', []):
-                st.write(f"• {item}")
-        
-        with tabs[4]:  # Tips
-            st.subheader("Style Tips")
-            for tip in recommendations.get('tips', []):
-                st.info(f"💡 {tip}")
+        with col3:
+            st.markdown("### 💡 Pro Tips")
+            st.markdown("- Use a timer or ask someone to help")
+            st.markdown("- Stand 6-8 feet from camera")
+            st.markdown("- Wear fitted clothing")
+            st.markdown("- Keep arms slightly away from body")
     
-    # Body type description
+    # Footer
     st.markdown("---")
-    st.header("📖 About Your Body Type")
-    body_type_info = get_body_type_description(body_type)
-    st.markdown(body_type_info)
-
-
-def get_body_type_description(body_type):
-    """Get detailed description for each body type."""
-    descriptions = {
-        "Rectangle (I)": """
-        **Rectangle (I) Body Type:**
-        Your shoulders, waist, and hips are similar in width, creating a straight silhouette. 
-        This body type is also known as the "athletic" or "straight" body type.
-        
-        **Key Characteristics:**
-        - Minimal waist definition
-        - Similar shoulder and hip measurements
-        - Weight tends to be evenly distributed
-        
-        **Styling Goals:**
-        - Create the illusion of curves
-        - Define your waistline
-        - Add volume to bust and hips
-        """,
-        
-        "Hourglass": """
-        **Hourglass Body Type:**
-        You have a well-defined waist with bust and hip measurements that are nearly equal. 
-        This is considered the classic feminine silhouette.
-        
-        **Key Characteristics:**
-        - Defined waistline
-        - Balanced bust and hip proportions
-        - Curves in all the right places
-        
-        **Styling Goals:**
-        - Emphasize your natural waistline
-        - Choose fitted silhouettes
-        - Maintain your balanced proportions
-        """,
-        
-        "Inverted Triangle": """
-        **Inverted Triangle Body Type:**
-        Your shoulders are broader than your hips, creating a strong upper body silhouette. 
-        This body type is common among athletes.
-        
-        **Key Characteristics:**
-        - Broad shoulders
-        - Narrow hips
-        - Strong, athletic build
-        
-        **Styling Goals:**
-        - Balance your proportions
-        - Add volume to your lower body
-        - Soften your shoulder line
-        """,
-        
-        "Pear (Triangle)": """
-        **Pear (Triangle) Body Type:**
-        Your hips are wider than your shoulders, creating a feminine silhouette with curves 
-        concentrated in the lower body.
-        
-        **Key Characteristics:**
-        - Narrow shoulders
-        - Fuller hips and thighs
-        - Defined waistline
-        
-        **Styling Goals:**
-        - Balance your proportions
-        - Emphasize your upper body
-        - Create shoulder definition
-        """,
-        
-        "Apple (Round)": """
-        **Apple (Round) Body Type:**
-        You carry weight around your midsection with a fuller bust and less defined waistline. 
-        Your legs are often your best feature.
-        
-        **Key Characteristics:**
-        - Fuller midsection
-        - Less defined waistline
-        - Beautiful legs
-        
-        **Styling Goals:**
-        - Create vertical lines
-        - Emphasize your legs
-        - Draw attention away from the midsection
-        """
-    }
-    
-    return descriptions.get(body_type, "Body type information not available.")
-
+    st.markdown("""
+    <div style="text-align: center; color: #666; padding: 2rem;">
+        <p>Made with ❤️ using Streamlit and MediaPipe</p>
+        <p><em>Your privacy is important - uploaded images are processed locally and not stored</em></p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()

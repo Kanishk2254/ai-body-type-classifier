@@ -1,6 +1,6 @@
-# AI Body Type Classifier & Style Advisor
+# AI Body Type Analyzer
 
-A comprehensive AI-powered application that analyzes body types from images and provides personalized clothing recommendations using computer vision and pose estimation.
+A sleek AI-powered web application that analyzes body types from uploaded images and provides personalized clothing recommendations using MediaPipe pose estimation.
 
 ## 🌟 Features
 
@@ -30,33 +30,20 @@ cd body-classfier
 pip install -r requirements.txt
 ```
 
-### Usage Options
+### Usage
 
-#### Option 1: Web Interface (Recommended)
+#### Web Interface
 ```bash
-# Standard way
 streamlit run app.py
-
-# Or use the provided scripts to suppress warnings:
-# On Windows (Command Prompt)
-run_app.bat
-
-# On Windows (PowerShell)
-.\run_app.ps1
 ```
 Then open your browser to `http://localhost:8501`
 
-#### Option 2: Command Line
-```bash
-python cli_test.py path/to/your/image.jpg
-```
-
-#### Option 3: Python API
+#### Python API
 ```python
 from body_classifier import BodyTypeClassifier
 
 classifier = BodyTypeClassifier()
-result = classifier.analyze_image("your_image.jpg")
+result = classifier.analyze_body_type("your_image.jpg")
 print(result)
 ```
 
@@ -141,7 +128,6 @@ else:
 body-classfier/
 ├── body_classifier.py    # Core classification logic
 ├── app.py               # Streamlit web interface
-├── cli_test.py          # Command-line interface
 ├── requirements.txt     # Dependencies
 └── README.md           # This file
 ```
@@ -223,22 +209,13 @@ This tool provides style suggestions based on general body type guidelines. Fash
    - Check if port 8501 is available
    - Try: `streamlit run app.py --port 8502`
 
-### Warning Suppression
+### Screenshots
 
-The app automatically suppresses TensorFlow and MediaPipe warnings for a cleaner experience. If you see warnings, you can:
-
-1. **Use the provided launch scripts** (recommended):
-   - `run_app.bat` (Windows Command Prompt)
-   - `run_app.ps1` (Windows PowerShell)
-
-2. **Manually set environment variables**:
-   ```bash
-   export TF_CPP_MIN_LOG_LEVEL=3
-   export TF_ENABLE_ONEDNN_OPTS=0
-   export PYTHONWARNINGS=ignore
-   ```
-
-3. **The config.py module** automatically handles most suppressions
+The app features a modern, intuitive interface with:
+- Beautiful gradient headers
+- Interactive confidence bars
+- Organized recommendation tabs
+- Pose visualization capability
 
 ### Getting Help
 - Check the error messages for specific guidance

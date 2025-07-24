@@ -139,8 +139,8 @@ class BodyTypeClassifier:
         else:
             return "Apple (Round)"
     
-    def get_clothing_recommendations(self, body_type: str) -> Dict:
-        """Get clothing recommendations based on body type."""
+    def get_enhanced_recommendations(self, body_type: str) -e Dict:
+        """Get enhanced clothing recommendations based on body type."""
         recommendations = {
             "Rectangle (I)": {
                 "tops": ["Peplum tops", "Ruffled blouses", "Wrap tops", "Belted jackets"],
@@ -197,7 +197,7 @@ class BodyTypeClassifier:
         body_type = self.classify_body_type(measurements)
         
         # Get recommendations
-        recommendations = self.get_clothing_recommendations(body_type)
+        recommendations = self.get_enhanced_recommendations(body_type)
         
         return {
             "body_type": body_type,
@@ -205,6 +205,82 @@ class BodyTypeClassifier:
             "recommendations": recommendations,
             "confidence": self._calculate_confidence(measurements)
         }
+    
+    def analyze_body_type(self, image_path: str) -> Dict:
+        """Analyze body type with enhanced return format for the new UI."""
+        try:
+            # Extract landmarks
+            landmarks = self.extract_pose_landmarks(image_path)
+            if not landmarks:
+                return {
+                    "success": False,
+                    "error": "Could not detect pose landmarks in the image. Please ensure your full body is visible and you're standing straight."
+                }
+            
+            # Calculate measurements
+            measurements = self.calculate_body_measurements(landmarks)
+            if not measurements:
+                return {
+                    "success": False,
+                    "error": "Could not calculate body measurements from the detected pose."
+                }
+            
+            # Classify body type
+            body_type = self.classify_body_type(measurements)
+            
+            # Get enhanced recommendations
+            recommendations = self.get_enhanced_recommendations(body_type)
+            
+            # Convert measurements to expected format
+            enhanced_measurements = {
+                'shoulder_hip_ratio': measurements['shoulder_to_hip_ratio'],
+                'waist_hip_ratio': measurements['waist_to_hip_ratio'],
+                'waist_definition': measurements['waist_to_shoulder_ratio'],
+                'torso_length': measurements['torso_length']
+            }
+            
+            return {
+                "success": True,
+                "body_type": body_type,
+                "measurements": enhanced_measurements,
+                "recommendations": recommendations,
+                "confidence": self._calculate_confidence(measurements)
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"An error occurred during analysis: {str(e)}"
+            }
+    
+    def visualize_pose(self, image_path: str):
+        """Create a visualization of the detected pose landmarks."""
+        try:
+            image = cv2.imread(image_path)
+            if image is None:
+                return None
+                
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = self.pose.process(image_rgb)
+            
+            if not results.pose_landmarks:
+                return None
+            
+            # Draw the pose landmarks on the image
+            annotated_image = image_rgb.copy()
+            self.mp_drawing.draw_landmarks(
+                annotated_image,
+                results.pose_landmarks,
+                self.mp_pose.POSE_CONNECTIONS,
+                self.mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
+                self.mp_drawing.DrawingSpec(color=(245, 66, 230), thickness=2, circle_radius=2)
+            )
+            
+            return annotated_image
+            
+        except Exception as e:
+            print(f"Error creating pose visualization: {e}")
+            return None
     
     def _calculate_confidence(self, measurements: Dict) -> float:
         """Calculate confidence score based on measurement quality."""
