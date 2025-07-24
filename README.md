@@ -56,6 +56,15 @@ For best results, use images with:
 - **Good lighting** and minimal background distractions
 - **Front-facing** or slightly angled pose
 
+### 🖼️ Sample Images
+Check the `images/` folder for:
+- Sample test images
+- Body type examples
+- App screenshots
+- Usage guidelines
+
+See `images/README.md` for detailed information about image requirements and examples.
+
 ## 🧠 How It Works
 
 ### 1. Pose Estimation
@@ -129,6 +138,9 @@ body-classfier/
 ├── body_classifier.py    # Core classification logic
 ├── app.py               # Streamlit web interface
 ├── requirements.txt     # Dependencies
+├── images/              # Sample images and screenshots
+│   ├── README.md        # Image guidelines and documentation
+│   └── .gitkeep         # Ensures folder is tracked by Git
 └── README.md           # This file
 ```
 

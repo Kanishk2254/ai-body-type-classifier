@@ -1,0 +1,5 @@
+# This file ensures the images folder is tracked by Git
+# even when it's empty or contains only binary files
+
+# You can add sample images here for testing the AI Body Type Analyzer
+# Make sure to follow the guidelines in the README.md file
